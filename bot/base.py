@@ -19,9 +19,8 @@ if TYPE_CHECKING:
 
 
 # @dataclass
-class Command(ABC):
-    """Base abstract class for all commands."""
 
+class Command(ABC):
     name: Optional[str] = None
     usage: Optional[str] = None
     description: Optional[str] = None
@@ -33,19 +32,6 @@ class Command(ABC):
     logger = Logger()
 
     def __init__(self, bot: discord.Client, manager: "Manager", db: SQLParser) -> None:
-        """Initialize the command.
-
-        [Args]:
-            bot (discord.Client): bot on which we'll use the command
-            manager: (Manager): ?
-            db (SQLParser): command database connection
-
-        [Raises]:
-            ValueError: if 'name' field is empty
-            ValueError: if 'description' field is empty
-            ValueError: if 'usage' field is empty
-        """
-
         self.bot = bot
         self.manager = manager
         self.db = db
@@ -58,61 +44,45 @@ class Command(ABC):
 
         if not self.usage:
             raise ValueError("Command usage is required")
-        else:
-            args: List[Tuple[str, str]] = re.findall(
-                f"\[([^\[\]]+)\]|\<([^\<\>]+)\>", self.usage
-            )
-            args: List[str] = [f"<{i[1]}>" if i[1] else f"[{i[0]}]" for i in args]
 
-            # Verify the integredy of the usage arguments
-            last_arg = "< "
-            for arg in args:
-                if arg[0] == "<" and last_arg[0] == "[":
-                    raise ValueError(
-                        "Cannot have a positional argument after an optional argument."
-                    )
-                if last_arg[1] == "*":
-                    raise ValueError("Cannot have a command argument after a *arg.")
-                last_arg = arg
+        # Parse arguments from usage string (e.g., [optional], <positional>)
+        args: List[Tuple[str, str]] = re.findall(r"\[([^\[\]]+)\]|<([^<>]+)>", self.usage)
+        parsed_args: List[str] = [f"<{a[1]}>" if a[1] else f"[{a[0]}]" for a in args]
+
+        # Check that no positional argument follows an optional argument
+        last_arg = "< "
+        for arg in parsed_args:
+            if arg.startswith("<") and last_arg.startswith("["):
+                raise ValueError("Cannot have a positional argument after an optional argument.")
+            if last_arg.endswith("*"):
+                raise ValueError("Cannot have a command argument after a *arg.")
+            last_arg = arg
 
         if not asyncio.iscoroutinefunction(self.execute):
             raise TypeError("Command execute() method must be a coroutine")
 
     @abstractmethod
     async def execute(self, arguments: List[str], message: discord.Message) -> None:
-        """Execute the command.
-
-        [Args]:
-            arguments (List[str]): command arguments
-            message (discord.Message): message which called the command
-
-        [Raises]:
-            NotImplementedError: because this method is still not implemented
-        """
-
         raise NotImplementedError("Command execute method is required")
 
     async def get_contributers(self) -> str:
-        res = (
-            subprocess.run(
-                [
-                    "git",
-                    "shortlog",
-                    "-n",
-                    "-s",
-                    "HEAD",
-                    "--",
-                    f"bot/commands/{self.file}",
-                ],
-                capture_output=True,
-            )
-            .stdout.decode()
-            .strip("\n")
+        result = subprocess.run(
+            [
+                "git",
+                "shortlog",
+                "-n",
+                "-s",
+                "HEAD",
+                "--",
+                f"bot/commands/{self.file}",
+            ],
+            capture_output=True,
         )
-        lines = res.split("\n")
-        colums = [i.strip().split() for i in lines]
-        text = "\n".join([f"{i[0]:<9}{i[1]}" for i in colums])
-        return text
+        output = result.stdout.decode().strip()
+        lines = output.split("\n")
+        columns = [line.strip().split() for line in lines if line.strip()]
+        return "\n".join(f"{col[0]:<9}{' '.join(col[1:])}" for col in columns)
+
 
 
 class Event(ABC):
